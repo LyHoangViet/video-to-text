@@ -1,6 +1,1 @@
 opencv-python
-python-dotenv
-langchain-community
-langchain
-streamlit
-langchain-aws
