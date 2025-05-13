@@ -25,7 +25,7 @@
 - Các thư viện Python sau:
 
 ```bash
-pip install streamlit boto3 ope
+pip install streamlit boto3 opencv-python
 ```
 
 ---
