@@ -10,6 +10,7 @@ import cv2
 from PIL import Image
 import io
 import enum
+import pandas as pd
 
 # Import từ module video_processor
 from video_processor import VideoProcessor
@@ -366,6 +367,41 @@ def analyze_frames_with_claude(frames, prompt: str, temperature: float, top_p: f
             return f"Lỗi khi gọi Bedrock model: {str(e)}"
         except Exception as e:
             return f"Lỗi không xác định: {str(e)}"
+        
+def display_results_as_table(result_text):
+    """
+    Chuyển đổi kết quả JSON thành bảng Pandas và hiển thị trong Streamlit
+    
+    Args:
+        result_text: Văn bản kết quả từ model (dạng JSON)
+    
+    Returns:
+        DataFrame: Pandas DataFrame được tạo từ JSON nếu thành công, None nếu thất bại
+    """
+    try:
+        # Tìm và trích xuất JSON từ kết quả
+        json_start = result_text.find('[')
+        json_end = result_text.rfind(']') + 1
+        
+        if json_start >= 0 and json_end > json_start:
+            json_str = result_text[json_start:json_end]
+            # Parse JSON
+            data = json.loads(json_str)
+            
+            # Tạo DataFrame từ JSON
+            df = pd.DataFrame(data)
+            
+            # Trả về DataFrame để có thể sử dụng ở nơi khác nếu cần
+            return df
+        else:
+            st.error("Không tìm thấy JSON hợp lệ trong kết quả")
+            return None
+    except json.JSONDecodeError:
+        st.error("Không thể parse JSON từ kết quả. Định dạng không hợp lệ.")
+        return None
+    except Exception as e:
+        st.error(f"Lỗi khi chuyển đổi kết quả thành bảng: {str(e)}")
+        return None
 
 def main():
     # App title
@@ -593,25 +629,59 @@ def main():
                     
                     # Display results
                     st.subheader(f"Kết quả phân tích từ {selected_model.value}")
-                    st.markdown(result)
-                    
+                    with st.expander("Xem kết quả phân tích", expanded=False):
+                        st.markdown(result)  
+                                            
                     # Option to download as text file
-                    if result:
-                        # Create download button for the result
-                        st.download_button(
-                            label="Tải kết quả về (TXT)",
-                            data=result,
-                            file_name="ket_qua_phan_tich.txt",
-                            mime="text/plain"
+                    df = display_results_as_table(result)
+                    if df is not None:
+                        st.subheader("Kết quả dạng bảng")
+                        
+                        # Thêm tùy chọn chỉnh sửa bảng nếu cần
+                        edited_df = st.data_editor(
+                            df,
+                            num_rows="dynamic",
+                            use_container_width=True,
+                            hide_index=True
                         )
                         
-                        # Save prompt used for reference
+                        # Tạo nút tải xuống cho CSV
+                        csv = edited_df.to_csv(index=False)
                         st.download_button(
-                            label="Tải prompt đã sử dụng (TXT)",
-                            data=prompt,
-                            file_name="prompt_da_su_dung.txt",
-                            mime="text/plain"
+                            label="Tải bảng về (CSV)",
+                            data=csv,
+                            file_name="ket_qua_phan_tich.csv",
+                            mime="text/csv"
                         )
+                        
+                        # Tùy chọn tạo Excel
+                        buffer = io.BytesIO()
+                        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                            edited_df.to_excel(writer, sheet_name='Kết quả phân tích', index=False)
+                        buffer.seek(0)
+                        
+                        st.download_button(
+                            label="Tải bảng về (Excel)",
+                            data=buffer,
+                            file_name="ket_qua_phan_tich.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    
+                    # Option to download as text file vẫn giữ lại
+                    st.download_button(
+                        label="Tải kết quả về (TXT)",
+                        data=result,
+                        file_name="ket_qua_phan_tich.txt",
+                        mime="text/plain"
+                    )
+                    
+                    # Save prompt used for reference
+                    st.download_button(
+                        label="Tải prompt đã sử dụng (TXT)",
+                        data=prompt,
+                        file_name="prompt_da_su_dung.txt",
+                        mime="text/plain"
+                    )
         else:
             st.write("👆 Hãy tải lên video để phân tích")
             
@@ -697,25 +767,60 @@ def main():
                     
                     # Display results
                     st.subheader(f"Kết quả phân tích từ {selected_model.value}")
-                    st.markdown(result)
-                    
+                    # Sử dụng expander để ẩn/hiện kết quả
+                    with st.expander("Xem kết quả phân tích", expanded=False):
+                        st.markdown(result)    
+
                     # Option to download as text file
-                    if result:
-                        # Create download button for the result
-                        st.download_button(
-                            label="Tải kết quả về (TXT)",
-                            data=result,
-                            file_name="ket_qua_phan_tich.txt",
-                            mime="text/plain"
+                    df = display_results_as_table(result)
+                    if df is not None:
+                        st.subheader("Kết quả dạng bảng")
+                        
+                        # Thêm tùy chọn chỉnh sửa bảng nếu cần
+                        edited_df = st.data_editor(
+                            df,
+                            num_rows="dynamic",
+                            use_container_width=True,
+                            hide_index=True
                         )
                         
-                        # Save prompt used for reference
+                        # Tạo nút tải xuống cho CSV
+                        csv = edited_df.to_csv(index=False)
                         st.download_button(
-                            label="Tải prompt đã sử dụng (TXT)",
-                            data=prompt,
-                            file_name="prompt_da_su_dung.txt",
-                            mime="text/plain"
+                            label="Tải bảng về (CSV)",
+                            data=csv,
+                            file_name="ket_qua_phan_tich.csv",
+                            mime="text/csv"
                         )
+                        
+                        # Tùy chọn tạo Excel
+                        buffer = io.BytesIO()
+                        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                            edited_df.to_excel(writer, sheet_name='Kết quả phân tích', index=False)
+                        buffer.seek(0)
+                        
+                        st.download_button(
+                            label="Tải bảng về (Excel)",
+                            data=buffer,
+                            file_name="ket_qua_phan_tich.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    
+                    # Option to download as text file vẫn giữ lại
+                    st.download_button(
+                        label="Tải kết quả về (TXT)",
+                        data=result,
+                        file_name="ket_qua_phan_tich.txt",
+                        mime="text/plain"
+                    )
+                    
+                    # Save prompt used for reference
+                    st.download_button(
+                        label="Tải prompt đã sử dụng (TXT)",
+                        data=prompt,
+                        file_name="prompt_da_su_dung.txt",
+                        mime="text/plain"
+                    )
         else:
             st.write("👆 Hãy tải lên hình ảnh để phân tích")
 
