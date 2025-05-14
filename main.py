@@ -21,28 +21,108 @@ st.set_page_config(
 )
 
 # Khai báo mặc định cho prompt và các thông số model
-DEFAULT_PROMPT = """Dựa vào list hình từ video này, bạn hãy:
+DEFAULT_PROMPT = """# 🧠 Hướng Dẫn Phân Tích Sản Phẩm Vinamilk Từ Các Frame Ảnh Cắt Từ Video Quay Kệ Hàng
 
-1. Xác định tất cả các loại sản phẩm khác nhau xuất hiện trong hình (dựa vào màu sắc bao bì, thiết kế và tên sản phẩm).
+## 🎯 Mục Tiêu
 
-2. Đếm số lượng sản phẩm của mỗi loại.
+Bạn là một chuyên gia phân tích hình ảnh từ video. Nhiệm vụ của bạn là nhận diện, phân loại và trích xuất thông tin chi tiết về các sản phẩm Vinamilk xuất hiện trong các hình ảnh (frame) được cắt từ một video quay kệ trưng bày sản phẩm (chai, hộp, khay...).
 
-3. Tổng hợp thông tin với:
-   - Số loại sản phẩm khác nhau
-   - Số lượng của mỗi loại
-   - Tổng số sản phẩm
-   
-4. Mô tả ngắn gọn đặc điểm nhận dạng chính của mỗi loại sản phẩm để phân biệt."""
+❗️Lưu ý đặc biệt:  
+Do dữ liệu đầu vào là các frame ảnh liên tiếp từ video, có khả năng cao các sản phẩm sẽ xuất hiện lặp lại ở nhiều frame. Vì vậy bạn cần áp dụng kỹ thuật nhận diện trùng lặp (duplicate detection) để:
 
-DEFAULT_TEMPERATURE = 0.1
+- ✅ Không đếm trùng sản phẩm đã xuất hiện ở các frame trước.
+- ✅ Chỉ đếm mỗi sản phẩm Vinamilk một lần nếu mặt trước đã được nhìn rõ từ trước đó.
+
+---
+
+## 🔧 Tiền Xử Lý Ảnh (BẮT BUỘC THỰC HIỆN TRƯỚC)
+
+Trước khi bắt đầu phân tích, phải thực hiện các bước xử lý ảnh sau:
+
+1. 🌀 Xoay ảnh đúng chiều: mặt trước sản phẩm hướng ra ngoài.
+2. 🌗 Cân bằng độ sáng và tương phản để cải thiện khả năng đọc nhãn.
+3. 🔍 Phóng to vùng chứa chữ trên sản phẩm để dễ phân tích.
+4. ⚙️ Tăng độ sắc nét nếu ảnh bị mờ hoặc out nét.
+
+---
+
+## 📌 Nhiệm Vụ Phân Tích Nội Dung
+
+1. ✅ Đếm tổng số sản phẩm Vinamilk có mặt trước rõ ràng.  
+   - ❌ Không đếm sản phẩm chỉ thấy mặt bên hoặc mặt sau.  
+   - ❗️Không đếm trùng sản phẩm đã thấy ở các frame trước.
+
+2. 🏷️ Phân loại dòng sản phẩm Vinamilk  
+   - Ví dụ: sữa tươi, sữa chua, sữa bột, sữa đặc...  
+   - ⚠️ Nếu cùng loại nhưng khác màu bao bì → tách thành dòng riêng biệt  
+     (VD: “Vinamilk Flex đỏ” ≠ “Vinamilk Flex xanh”).
+
+3. 📦 Đếm số stack (hàng ngang dưới cùng của mỗi dòng sản phẩm)  
+   - Không tính sản phẩm ở phía sau hoặc bị khuất.
+
+4. 💰 Trích xuất giá gốc  
+   - Giá thường nhỏ hơn, bị gạch ngang.
+
+5. 💵 Trích xuất giá khuyến mãi  
+   - Giá thường to hơn, in đậm hơn giá gốc.
+
+6. 🗓️ Trích xuất thời gian khuyến mãi  
+   - Dạng: `DD/MM–DD/MM/YYYY`, nằm gần khu vực giá.
+
+7. 🎨 Mô tả màu sắc bao bì  
+   - Bao gồm: Màu chính (primary) và màu phụ (secondary).
+
+---
+
+## 📤 Kết Quả Trả Về (CHỈ DƯỚI DẠNG JSON)
+
+> Mỗi sản phẩm là một phần tử trong mảng JSON.
+
+Cấu trúc mẫu:
+
+```json
+[
+  {
+    "label_name": "Vinamilk Flex đỏ trắng",
+    "total_stacks": 4,
+    "product_detail": "1L, Vinamilk, sữa tươi tiệt trùng, ít béo",
+    "origin_price": "34.000đ",
+    "discount_price": "29.500đ",
+    "promotion_period": "10/05–15/05/2025"
+  },
+  {
+    "label_name": "Vinamilk ADM xanh trắng",
+    "total_stacks": 3,
+    "product_detail": "110ml, Vinamilk, sữa chua uống, bổ sung vitamin A+D+M",
+    "origin_price": "18.000đ",
+    "discount_price": "15.000đ",
+    "promotion_period": "01/05–10/05/2025"
+  }
+]
+```
+
+## ⚠️ Lưu Ý Bắt Buộc
+
+- ❗️ Bạn cần xử lý và loại bỏ các sản phẩm bị trùng lặp giữa các frame do video cắt thành nhiều ảnh liên tiếp.
+  - Sử dụng cơ chế nhận diện hình ảnh hoặc vị trí (hoặc hashing ảnh) để phát hiện trùng lặp.
+  - Ưu tiên đếm sản phẩm trong frame đầu tiên mà sản phẩm đó xuất hiện rõ ràng.
+- ✅ Chỉ đếm các sản phẩm Vinamilk có mặt trước được nhìn thấy rõ ràng.
+- ✅ Cùng một sản phẩm nhưng khác màu bao bì → tính là dòng sản phẩm riêng biệt.
+- ✅ Nếu một sản phẩm xuất hiện ở nhiều frame → chỉ đếm 1 lần duy nhất.
+- ❌ Không đếm sản phẩm bị khuất, mờ, hoặc chỉ thấy một phần bên hông hay mặt sau.
+- 🚫 Không thêm bất kỳ nội dung giải thích nào ngoài JSON đầu ra.
+- ⚙️ JSON trả về phải hợp lệ hoàn toàn: đúng cấu trúc, đúng định dạng kiểu dữ liệu, không thiếu trường.
+"""
+
+DEFAULT_TEMPERATURE = 0.01
 DEFAULT_TOP_P = 0.2
-DEFAULT_TOP_K = 50
-DEFAULT_MAX_TOKENS = 4000
+DEFAULT_TOP_K = 100
+DEFAULT_MAX_TOKENS = 10000
 DEFAULT_REGION = "us-east-1"  # Sử dụng region mặc định
 
 # Định nghĩa enum cho các model
 class ModelType(str, enum.Enum):
-    NOVA = "Amazon Nova"
+    NOVA = "Nova Premier"
     CLAUDE = "Claude 3.7 Sonnet"
 
 def detect_image_type(file_name: str) -> str:
@@ -361,7 +441,7 @@ def main():
             "Số lượng frames cần trích xuất:",
             min_value=5,
             max_value=100,
-            value=10,
+            value=20,
             step=1
         )
     elif extraction_method == "Theo khoảng thời gian":

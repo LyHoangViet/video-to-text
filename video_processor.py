@@ -78,7 +78,7 @@ class VideoProcessor:
         frames = []
         # Tính khoảng cách giữa các frames sẽ lấy
         if num_frames > 1:
-            step = self.frame_count / (num_frames - 1) if num_frames > 1 else 0
+            step = (self.frame_count - 1) / (num_frames - 1)
         else:
             step = 0
             
