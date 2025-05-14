@@ -15,7 +15,7 @@ import enum
 from video_processor import VideoProcessor
 
 st.set_page_config(
-    page_title="Phân Tích Video Sản Phẩm Với Nova",
+    page_title="Phân Tích Video Sản Phẩm Với Bedrock",
     page_icon="🔍",
     layout="wide"
 )
@@ -273,8 +273,8 @@ def main():
     
     # Information block
     st.info("""
-    Ứng dụng này sử dụng Amazon Nova trên AWS Bedrock để phân tích video sản phẩm.
-    Tải lên video và chọn phương pháp trích xuất frames để Nova phân tích sản phẩm.
+    Ứng dụng này sử dụng Amazon Nova và Claude trên AWS Bedrock để phân tích video sản phẩm.
+    Tải lên video và chọn phương pháp trích xuất frames để Nova hoặc Claude phân tích sản phẩm.
     """)
     
     # Sidebar for model parameters only (removed AWS configuration)
@@ -419,26 +419,45 @@ def main():
                     frames = video_processor.extract_frames_keyframes(threshold, max_keyframes)
                     st.write(f"Đã phát hiện và trích xuất {len(frames)} keyframes")
             
-            # Display extracted frames
+            # Display extracted frames with expander for show/hide
             st.subheader("Frames đã trích xuất")
             
-            # Create columns to display frames
-            num_cols = 4  # Number of columns in the grid
-            cols = st.columns(num_cols)
+            # Lưu frames để phân tích (luôn thực hiện)
+            extracted_frames = [(i, frame.image) for i, frame in enumerate(frames)]
             
-            # Hiển thị các frames đã trích xuất
-            extracted_frames = []
-            for i, frame in enumerate(frames):
-                col_idx = i % num_cols
-                with cols[col_idx]:
-                    # Hiển thị frame
-                    st.image(
-                        frame.image, 
-                        caption=f"Frame {frame.frame_number} (t={frame.timestamp:.2f}s)", 
-                        use_column_width=True
-                    )
-                    # Lưu để phân tích
-                    extracted_frames.append((i, frame.image))
+            # Hiển thị thông tin tổng quan về frames
+            st.info(f"Đã trích xuất {len(frames)} frames.")
+            
+            # Sử dụng expander để hiển thị/ẩn frames (không gây reload toàn bộ trang)
+            with st.expander("Xem chi tiết các frames", expanded=False):
+                # Thêm tùy chọn xem kiểu lưới hoặc danh sách
+                view_mode = st.radio(
+                    "Chế độ hiển thị:",
+                    ["Lưới", "Danh sách"]
+                )
+                
+                if view_mode == "Lưới":
+                    # Create columns to display frames in grid
+                    num_cols = 4  # Number of columns in the grid
+                    cols = st.columns(num_cols)
+                    
+                    # Hiển thị các frames đã trích xuất theo lưới
+                    for i, frame in enumerate(frames):
+                        col_idx = i % num_cols
+                        with cols[col_idx]:
+                            # Hiển thị frame
+                            st.image(
+                                frame.image, 
+                                caption=f"Frame {frame.frame_number} (t={frame.timestamp:.2f}s)", 
+                                use_column_width=True
+                            )
+                else:  # Danh sách
+                    # Tạo container để đặt tất cả các expander bên trong
+                    frame_container = st.container()
+                    # Hiển thị theo danh sách từng frame một
+                    for i, frame in enumerate(frames):
+                        with frame_container.expander(f"Frame {frame.frame_number} (t={frame.timestamp:.2f}s)"):
+                            st.image(frame.image, use_column_width=True)
             
             # Phân tích frames bằng Nova hoặc Claude
             if extracted_frames:
