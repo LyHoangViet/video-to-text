@@ -3,10 +3,7 @@ import boto3
 import base64
 import json
 import streamlit as st
-from typing import List
 from botocore.exceptions import ClientError
-import tempfile
-import cv2
 from PIL import Image
 import io
 import enum
@@ -118,17 +115,35 @@ DEFAULT_TEMPERATURE = 0.01
 DEFAULT_TOP_P = 0.2
 DEFAULT_TOP_K = 100
 DEFAULT_MAX_TOKENS = 10000
-DEFAULT_REGION = "us-east-1"  # Sử dụng region mặc định
+DEFAULT_REGION = "us-east-1" 
 
-# Định nghĩa enum cho các model
 class ModelType(str, enum.Enum):
     NOVA = "Nova Premier"
-    CLAUDE = "Claude 3.7 Sonnet"
+    CLAUDE_3_7_SONNET = "Claude 3.7 Sonnet"
+    CLAUDE_4_SONNET = "Claude 4 Sonnet"
+    CLAUDE_4_OPUS = "Claude 4 Opus"
 
-# Định nghĩa enum cho loại đầu vào
 class InputType(str, enum.Enum):
     VIDEO = "Video"
     IMAGE = "Hình ảnh"
+
+def get_model_id(model_type: ModelType) -> str:
+    """
+    Trả về model ID tương ứng với loại model được chọn
+    
+    Args:
+        model_type: Loại model được chọn
+        
+    Returns:
+        Model ID string cho AWS Bedrock
+    """
+    model_ids = {
+        ModelType.NOVA: "us.amazon.nova-premier-v1:0",
+        ModelType.CLAUDE_3_7_SONNET: "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        ModelType.CLAUDE_4_SONNET: "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        ModelType.CLAUDE_4_OPUS: "us.anthropic.claude-opus-4-20250514-v1:0"
+    }
+    return model_ids[model_type]
 
 def detect_image_type(file_name: str) -> str:
     """
@@ -270,7 +285,7 @@ def analyze_frames_with_nova(frames, prompt: str, temperature: float, top_p: flo
             
             # Invoke the model on Bedrock
             response = bedrock_runtime.invoke_model(
-                modelId="us.amazon.nova-premier-v1:0",
+                modelId=get_model_id(ModelType.NOVA),
                 body=json.dumps(payload)
             )
             
@@ -286,9 +301,9 @@ def analyze_frames_with_nova(frames, prompt: str, temperature: float, top_p: flo
         except Exception as e:
             return f"Lỗi không xác định: {str(e)}"
 
-def analyze_frames_with_claude(frames, prompt: str, temperature: float, top_p: float, top_k: int, max_tokens: int):
+def analyze_frames_with_claude(frames, prompt: str, temperature: float, top_p: float, top_k: int, max_tokens: int, model_type: ModelType):
     """
-    Uses Claude 3.7 Sonnet on AWS Bedrock to analyze video frames and count different types of products.
+    Uses Claude models on AWS Bedrock to analyze video frames and count different types of products.
     
     Args:
         frames: List of video frames or images to analyze
@@ -297,25 +312,21 @@ def analyze_frames_with_claude(frames, prompt: str, temperature: float, top_p: f
         top_p: Top-p setting (0-1)
         top_k: Top-k setting
         max_tokens: Maximum tokens in response
+        model_type: Type of Claude model to use
         
     Returns:
         Claude's analysis of the video frame content
     """
     
-    # Create placeholder for loading indicator
-    with st.spinner("Claude đang phân tích hình ảnh..."):
-        # Read and encode frames
+    model_name = model_type.value
+    with st.spinner(f"{model_name} đang phân tích hình ảnh..."):
         images = []
         for i, frame in enumerate(frames):
-            # Check if frame is a tuple (from video) or direct PIL/numpy image (from uploads)
             if isinstance(frame, tuple):
-                # Từ video frames (tuple của index và frame)
                 _, frame_img = frame
             else:
-                # Trực tiếp từ hình ảnh
                 frame_img = frame
             
-            # Encode to base64
             image_data, mime_type = image_to_base64(frame_img, f"image_{i}.jpg")
                 
             images.append({
@@ -327,10 +338,8 @@ def analyze_frames_with_claude(frames, prompt: str, temperature: float, top_p: f
                 }
             })
         
-        # Prepare the message content combining images and prompt
         message_content = images + [{"type": "text", "text": prompt}]
         
-        # Prepare the request payload for Bedrock
         payload = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": max_tokens,
@@ -346,20 +355,16 @@ def analyze_frames_with_claude(frames, prompt: str, temperature: float, top_p: f
         }
         
         try:
-            # Create a Bedrock Runtime client
-            # Use AWS credentials from environment variables or AWS configuration
             bedrock_runtime = boto3.client(
                 service_name="bedrock-runtime",
                 region_name=DEFAULT_REGION
             )
             
-            # Invoke the model on Bedrock
             response = bedrock_runtime.invoke_model(
-                modelId="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+                modelId=get_model_id(model_type),
                 body=json.dumps(payload)
             )
             
-            # Parse and return the response
             response_body = json.loads(response["body"].read())
             return response_body["content"][0]["text"]
         
@@ -379,19 +384,15 @@ def display_results_as_table(result_text):
         DataFrame: Pandas DataFrame được tạo từ JSON nếu thành công, None nếu thất bại
     """
     try:
-        # Tìm và trích xuất JSON từ kết quả
         json_start = result_text.find('[')
         json_end = result_text.rfind(']') + 1
         
         if json_start >= 0 and json_end > json_start:
             json_str = result_text[json_start:json_end]
-            # Parse JSON
             data = json.loads(json_str)
             
-            # Tạo DataFrame từ JSON
             df = pd.DataFrame(data)
             
-            # Trả về DataFrame để có thể sử dụng ở nơi khác nếu cần
             return df
         else:
             st.error("Không tìm thấy JSON hợp lệ trong kết quả")
@@ -404,27 +405,23 @@ def display_results_as_table(result_text):
         return None
 
 def main():
-    # App title
     st.title("Phân Tích Video/Ảnh Sản Phẩm Với Bedrock")
     
-    # Information block
     st.info("""
     Ứng dụng này sử dụng Amazon Nova và Claude trên AWS Bedrock để phân tích video hoặc hình ảnh sản phẩm.
     Tải lên video/hình ảnh và chọn phương pháp phân tích để nhận kết quả.
     """)
     
-    # Sidebar for model parameters only (removed AWS configuration)
     st.sidebar.title("Cấu hình")
     
     # Model selection
     st.sidebar.subheader("Chọn Model")
     selected_model = st.sidebar.radio(
         "Model:",
-        options=[ModelType.NOVA, ModelType.CLAUDE],
+        options=[ModelType.NOVA, ModelType.CLAUDE_3_7_SONNET, ModelType.CLAUDE_4_SONNET, ModelType.CLAUDE_4_OPUS],
         format_func=lambda x: x.value
     )
     
-    # Model Parameters section
     st.sidebar.subheader("Tham Số Model")
     
     temperature = st.sidebar.slider(
@@ -463,10 +460,8 @@ def main():
         help="Độ dài tối đa của phản hồi được tạo ra."
     )
     
-    # Prompt configuration section
     st.sidebar.subheader("Tùy Chỉnh Prompt")
     
-    # Option to use custom prompt
     use_custom_prompt = st.sidebar.checkbox("Sử dụng prompt tùy chỉnh", value=False)
     
     if use_custom_prompt:
@@ -475,15 +470,12 @@ def main():
         prompt = DEFAULT_PROMPT
         st.sidebar.markdown("*Đang sử dụng prompt mặc định*")
     
-    # Main content area
-    # Choose input type: video or image
     input_type = st.radio(
         "Chọn loại đầu vào:",
         [InputType.VIDEO, InputType.IMAGE]
     )
     
     if input_type == InputType.VIDEO:
-        # VIDEO ANALYSIS WORKFLOW
         st.subheader("Tải lên video sản phẩm")
         uploaded_video = st.file_uploader(
             "Chọn file video (MP4, MOV, AVI, etc.)",
@@ -491,7 +483,6 @@ def main():
             key="video_uploader"
         )
         
-        # Video frame extraction settings
         st.subheader("Cài đặt trích xuất frames")
         
         extraction_method = st.radio(
@@ -499,7 +490,6 @@ def main():
             ["Đều đặn theo số lượng", "Theo khoảng thời gian", "Tự động phát hiện keyframes"]
         )
         
-        # Show different settings based on extraction method
         if extraction_method == "Đều đặn theo số lượng":
             num_frames = st.slider(
                 "Số lượng frames cần trích xuất:",
@@ -516,7 +506,7 @@ def main():
                 value=2.0,
                 step=0.5
             )
-        else:  # Tự động phát hiện keyframes
+        else:  
             threshold = st.slider(
                 "Ngưỡng phát hiện keyframes:",
                 min_value=0.01,
@@ -533,17 +523,13 @@ def main():
                 step=1
             )
         
-        # Show video and process it
         if uploaded_video:
             st.video(uploaded_video)
             
-            # Button to extract frames and analyze
             if st.button("Trích xuất frames và phân tích", type="primary", key="analyze_video_btn"):
-                # Process the video to extract frames
                 video_processor = VideoProcessor(uploaded_video)
                 video_info = video_processor.get_video_info()
                 
-                # Display video info
                 st.subheader("Thông tin video")
                 st.write(f"Tên file: {video_info['filename']}")
                 st.write(f"Độ phân giải: {video_info['resolution'][0]} x {video_info['resolution'][1]}")
@@ -551,7 +537,6 @@ def main():
                 st.write(f"Thời lượng: {video_info['duration']:.2f} giây")
                 st.write(f"Tổng số frames: {video_info['frame_count']}")
                 
-                # Extract frames based on selected method
                 with st.spinner("Đang trích xuất frames từ video..."):
                     if extraction_method == "Đều đặn theo số lượng":
                         frames = video_processor.extract_frames_uniform(num_frames)
@@ -559,22 +544,17 @@ def main():
                     elif extraction_method == "Theo khoảng thời gian":
                         frames = video_processor.extract_frames_interval(interval_seconds)
                         st.write(f"Đã trích xuất {len(frames)} frames (mỗi {interval_seconds} giây)")
-                    else:  # Tự động phát hiện keyframes
+                    else:  
                         frames = video_processor.extract_frames_keyframes(threshold, max_keyframes)
                         st.write(f"Đã phát hiện và trích xuất {len(frames)} keyframes")
                 
-                # Display extracted frames with expander for show/hide
                 st.subheader("Frames đã trích xuất")
                 
-                # Lưu frames để phân tích (luôn thực hiện)
                 extracted_frames = [(i, frame.image) for i, frame in enumerate(frames)]
                 
-                # Hiển thị thông tin tổng quan về frames
                 st.info(f"Đã trích xuất {len(frames)} frames.")
                 
-                # Sử dụng expander để hiển thị/ẩn frames (không gây reload toàn bộ trang)
                 with st.expander("Xem chi tiết các frames", expanded=False):
-                    # Thêm tùy chọn xem kiểu lưới hoặc danh sách
                     view_mode = st.radio(
                         "Chế độ hiển thị:",
                         ["Lưới", "Danh sách"],
@@ -582,32 +562,25 @@ def main():
                     )
                     
                     if view_mode == "Lưới":
-                        # Create columns to display frames in grid
-                        num_cols = 4  # Number of columns in the grid
+                        num_cols = 4  
                         cols = st.columns(num_cols)
                         
-                        # Hiển thị các frames đã trích xuất theo lưới
                         for i, frame in enumerate(frames):
                             col_idx = i % num_cols
                             with cols[col_idx]:
-                                # Hiển thị frame
                                 st.image(
                                     frame.image, 
                                     caption=f"Frame {frame.frame_number} (t={frame.timestamp:.2f}s)", 
                                     use_column_width=True
                                 )
-                    else:  # Danh sách
-                        # Tạo container để đặt tất cả các expander bên trong
+                    else: 
                         frame_container = st.container()
-                        # Hiển thị theo danh sách từng frame một
                         for i, frame in enumerate(frames):
                             with frame_container.expander(f"Frame {frame.frame_number} (t={frame.timestamp:.2f}s)"):
                                 st.image(frame.image, use_column_width=True)
                 
-                # Phân tích frames bằng Nova hoặc Claude
                 if extracted_frames:
                     if selected_model == ModelType.NOVA:
-                        # Call Nova via AWS Bedrock
                         result = analyze_frames_with_nova(
                             extracted_frames, 
                             prompt, 
@@ -616,28 +589,25 @@ def main():
                             top_k, 
                             max_tokens
                         )
-                    else:  # Claude
-                        # Call Claude via AWS Bedrock
+                    else: 
                         result = analyze_frames_with_claude(
                             extracted_frames, 
                             prompt, 
                             temperature, 
                             top_p, 
                             top_k, 
-                            max_tokens
+                            max_tokens,
+                            selected_model
                         )
                     
-                    # Display results
                     st.subheader(f"Kết quả phân tích từ {selected_model.value}")
                     with st.expander("Xem kết quả phân tích", expanded=False):
                         st.markdown(result)  
                                             
-                    # Option to download as text file
                     df = display_results_as_table(result)
                     if df is not None:
                         st.subheader("Kết quả dạng bảng")
                         
-                        # Thêm tùy chọn chỉnh sửa bảng nếu cần
                         edited_df = st.data_editor(
                             df,
                             num_rows="dynamic",
@@ -645,7 +615,6 @@ def main():
                             hide_index=True
                         )
                         
-                        # Tạo nút tải xuống cho CSV
                         csv = edited_df.to_csv(index=False)
                         st.download_button(
                             label="Tải bảng về (CSV)",
@@ -654,7 +623,6 @@ def main():
                             mime="text/csv"
                         )
                         
-                        # Tùy chọn tạo Excel
                         buffer = io.BytesIO()
                         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                             edited_df.to_excel(writer, sheet_name='Kết quả phân tích', index=False)
@@ -667,7 +635,6 @@ def main():
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                     
-                    # Option to download as text file vẫn giữ lại
                     st.download_button(
                         label="Tải kết quả về (TXT)",
                         data=result,
@@ -675,7 +642,6 @@ def main():
                         mime="text/plain"
                     )
                     
-                    # Save prompt used for reference
                     st.download_button(
                         label="Tải prompt đã sử dụng (TXT)",
                         data=prompt,
@@ -686,7 +652,6 @@ def main():
             st.write("👆 Hãy tải lên video để phân tích")
             
     else:
-        # IMAGE ANALYSIS WORKFLOW
         st.subheader("Tải lên hình ảnh sản phẩm")
         uploaded_images = st.file_uploader(
             "Chọn file hình ảnh (JPG, PNG, etc.)",
@@ -696,32 +661,25 @@ def main():
         )
         
         if uploaded_images:
-            # Hiển thị tổng quan
             st.info(f"Đã tải lên {len(uploaded_images)} hình ảnh.")
             
-            # Hiển thị hình ảnh đã tải lên
             st.subheader("Hình ảnh đã tải lên")
             
-            # Hiển thị các hình ảnh đã tải
             view_mode = st.radio(
                 "Chế độ hiển thị:",
                 ["Lưới", "Danh sách"],
                 key="image_view_mode"
             )
             
-            # Chuyển đổi uploaded_images thành list để truyền vào hàm phân tích
             processed_images = []
             
             if view_mode == "Lưới":
-                # Create columns to display images in grid
-                num_cols = 3  # Number of columns in the grid
+                num_cols = 3 
                 cols = st.columns(num_cols)
                 
-                # Hiển thị các hình ảnh đã tải lên theo lưới
                 for i, img_file in enumerate(uploaded_images):
                     col_idx = i % num_cols
                     with cols[col_idx]:
-                        # Đọc hình ảnh
                         img = Image.open(img_file)
                         # Đọc hình ảnh
                         img = Image.open(img_file)
